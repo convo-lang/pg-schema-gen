@@ -1,0 +1,24 @@
+@import std://make.convo
+
+> target
+in: 'src/pg-schema-gen.js'
+out: 'args.md'
+model: 'gpt-5'
+===
+Convert the `Args` typedef to a markdown table used to document CLI arguments
+
+Table columns: name, value, multi, description.
+
+The multi column should be empty or have a "Y" character if the prop is an array type.
+
+The value column should describe the logical value of the prop. For example an array of paths should have a value of "path".
+
+Update the descriptions to be singular.
+
+Remove `Ary` from the names of the props.
+
+Convert the prop names to kebab-case with all lower cases and start the names with '--'.
+
+Do not include undefined as part of the props type.
+
+===

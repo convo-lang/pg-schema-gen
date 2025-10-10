@@ -49,7 +49,7 @@ create table public.extra (
   name text not null
 );
 
-CREATE OR REPLACE FUNCTION get_user_by_id(id bigint)
+CREATE OR REPLACE FUNCTION get_user_by_id(id uuid)
 RETURNS TABLE (
   id bigint,
   name text
@@ -57,7 +57,7 @@ RETURNS TABLE (
 BEGIN
   RETURN QUERY
   SELECT id, name
-  FROM users
+  FROM user
   WHERE id = $1;
 END;
 $$ LANGUAGE plpgsql;

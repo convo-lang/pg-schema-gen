@@ -11,10 +11,9 @@ import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, read
  * @prop {string[]|undefined} typeMapFileAry Array of type map json files
  * @prop {string|undefined} clearTypeMap Clears all default type mappings 
  * @prop {string|undefined} insertSuffix A suffix added to insert types
- * @prop {string|undefined} silent
- * @prop {string|undefined} verbose
- * @prop {string[]|undefined} outAry Array of paths to write full output to
- * @prop {string[]|undefined} tsOutAry Array of paths to write TypeScript types to
+ * @prop {string|undefined} silent Silences console logging
+ * @prop {string|undefined} verbose Enables verbose output
+ * @prop {string[]|undefined} tsOutAry Array of paths to write TypeScript types to.
  * @prop {string[]|undefined} zodOutAry Array of paths to write Zod Schemas to
  * @prop {string[]|undefined} convoOutAry Array of paths to write Convo-Lang structs to
  * @prop {string[]|undefined} typeMapOutAry Array of paths to write the computed type map to

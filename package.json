@@ -1,0 +1,25 @@
+{
+  "name": "pg-schema-gen",
+  "version": "1.0.0",
+  "description": "CLI tool Generate TypeScript, Zod and other schema files based on create table SQL statements",
+  "main": "pg-schema-gen.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/convo-lang/pg-schema-gen.git"
+  },
+  "keywords": [],
+  "author": "Scott Vance",
+  "license": "ISC",
+  "type": "module",
+  "bin": {
+    "pg-schema-gen": "./src/pg-schema-gen.js"
+  },
+  "bugs": {
+    "url": "https://github.com/convo-lang/pg-schema-gen/issues"
+  },
+  "homepage": "https://github.com/convo-lang/pg-schema-gen#readme",
+  "dependencies": {
+    "pgsql-ast-parser": "^12.0.1",
+    "zod": "^4.1.12"
+  }
+}

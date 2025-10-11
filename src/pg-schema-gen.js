@@ -248,9 +248,9 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
         const prop=c.name.name;
         let arrayDepth=0;
         let dataType=c.dataType;
-        const notNull=c.constraints.some(c=>c.type==='not null');
-        const isPrimary=c.constraints.some(c=>c.type==='primary key');
-        const hasDefault=c.constraints.some(c=>c.type==='default');
+        const notNull=c.constraints?.some(c=>c.type==='not null');
+        const isPrimary=c.constraints?.some(c=>c.type==='primary key');
+        const hasDefault=c.constraints?.some(c=>c.type==='default');
         const required=forInsert?((notNull || isPrimary) && !hasDefault):(notNull || isPrimary);
         const optional=!required;
         while(dataType.kind==='array'){

@@ -13,7 +13,7 @@ create table public.user (
   data jsonb not null,
   constraint user_pkey primary key (id),
   constraint user_account_id_fkey foreign KEY (account_id) references account (id) on delete CASCADE
-);
+) TABLESPACE pg_default;
 
 -- extra data for stuff
 create table public.data (

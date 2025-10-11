@@ -148,7 +148,7 @@ const main=async ()=>{
         }
     }
 
-    const sql=sqlAry.join('\n\n');
+    const sql=sqlAry.join('\n\n').replace(/TABLESPACE\s+\w+/gi,'');
     const statements=parse(sql,{locationTracking:true});
 
     if(args.parsedSqlOutAry){

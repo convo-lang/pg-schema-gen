@@ -1,6 +1,6 @@
 {
   "name": "pg-schema-gen",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "CLI tool to generate TypeScript, Zod and other schema files based on create table SQL statements",
   "main": "pg-schema-gen.js",
   "repository": {

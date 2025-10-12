@@ -115,7 +115,7 @@ const main=async ()=>{
         silent(true);
     }
 
-    const insertSuffix=args.insertSuffix??'Insertion';
+    const insertSuffix=args.insertSuffix??'_insert';
 
     let typeMap=args.clearTypeMap==='true'?{}:{...defaultTypeMap};
     if(args.typeMapFileAry){
@@ -239,13 +239,17 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
     tsType.src.push(`/**\n`);
     if(typeDescription){
         tsType.src.push(`${toJsDoc(typeDescription,'',true)}\n`);
+        convoType.src.push(`${toConvoComment(typeDescription,'')}\n`);
     }
     if(forInsert){
         tsType.src.push(` * @insertFor ${baseName}\n`);
+        convoType.src.push(`# insertFor: ${baseName}\n`);
     }
     tsType.src.push(` * @table ${s.name.name}\n`);
+    convoType.src.push(`# table: ${s.name.name}\n`);
     if(s.name.schema){
-        tsType.src.push(` * @schema ${s.name.schema}\n`)
+        tsType.src.push(` * @schema ${s.name.schema}\n`);
+        convoType.src.push(`# schema: ${s.name.schema}\n`);
     }
     tsType.src.push(' */\n');
     zodType.src.push(...tsType.src);
@@ -286,7 +290,7 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
 
         tsType.src.push(`${indent}${prop}${optional?'?':''}:${mt.ts??mt._default}${'[]'.repeat(arrayDepth)};\n`);
 
-        let convoProp=`${indent}${prop}${optional?'?':''}:${mt.convo??mt._default}`;
+        let convoProp=`${indent}${prop}${optional?'?':''}: ${mt.convo??mt._default}`;
         for(let a=0;a<arrayDepth;a++){
             convoProp=`array(${convoProp})`
         }
@@ -361,6 +365,8 @@ const createEnum=(s,sql,typeMap,tsTypes,zodTypes,convoTypes)=>{
         tsType.src.push(`/**\n`);
         tsType.src.push(`${toJsDoc(typeDescription,'',true)}\n`);
         tsType.src.push(' */\n');
+
+        convoType.src.push(`${toConvoComment(typeDescription,'')}\n`);
     }
     zodType.src.push(`/**\n`);
     if(typeDescription){

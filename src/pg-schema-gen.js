@@ -28,6 +28,8 @@ import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, read
  * @prop {string} baseName
  * @prop {boolean|undefined} insert
  * @prop {string[]} src
+ * @prop {'type'|'enum'} type
+ * @prop {number} order
  */
 
  /**
@@ -54,19 +56,19 @@ const defaultTypeMap={
     },
     int:{
         _default:'number',
-        zod:'number().int()',
+        zod:'z.number().int()',
     },
     int2:{
         _default:'number',
-        zod:'number().int()',
+        zod:'z.number().int()',
     },
     int4:{
         _default:'',
-        zod:'number().int()',
+        zod:'z.number().int()',
     },
     int8:{
         _default:'',
-        zod:'number().int()',
+        zod:'z.number().int()',
     },
     float:{
         _default:'number',
@@ -83,13 +85,13 @@ const defaultTypeMap={
     json:{
         _default:'json',
         ts:'Record<string,any>',
-        zod:'record(z.string(),z.any())',
+        zod:'z.record(z.string(),z.any())',
         convo:'map',
     },
     jsonb:{
         _default:'json',
         ts:'Record<string,any>',
-        zod:'record(z.string(),z.any())',
+        zod:'z.record(z.string(),z.any())',
         convo:'map',
     },
     bool:{
@@ -171,6 +173,18 @@ const main=async ()=>{
         toTable:{},
     }
 
+    // Search for enums first
+    for(const s of statements){
+        switch(s.type){
+
+            case 'create enum':
+                createEnum(s,sql,typeMap,tsTypes,zodTypes,convoTypes);
+                break;
+            
+
+        }
+    }
+
     for(const s of statements){
         switch(s.type){
 
@@ -214,11 +228,11 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
     tableMap.toTable[name]=s.name.name;
 
     /** @type {SrcType} */
-    const tsType={name,baseName,src:[]};
+    const tsType={name,baseName,src:[],type:'type',order:2};
     /** @type {SrcType} */
-    const zodType={name,baseName,src:[]};
+    const zodType={name,baseName,src:[],type:'type',order:2};
     /** @type {SrcType} */
-    const convoType={name,baseName,src:[]};
+    const convoType={name,baseName,src:[],type:'type',order:2};
 
     const typeDescription=s._location && !forInsert?findComment(sql,s._location.start):undefined;
 
@@ -278,10 +292,7 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
         }
         convoType.src.push(convoProp+'\n');
 
-        let zodProp=mt.zod??mt._default;
-        if(!zodProp.includes('(')){
-            zodProp+='()';
-        }
+        let zodProp=mt.zod??'z.'+mt._default+'()';
         if(optional){
             zodProp+='.optional()';
         }
@@ -291,7 +302,7 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
         if(description){
             zodProp+=`.describe(${JSON.stringify(description)})`;
         }
-        zodType.src.push(`${indent}${prop}:z.${zodProp},\n`);
+        zodType.src.push(`${indent}${prop}:${zodProp},\n`);
     }
 
 
@@ -308,8 +319,82 @@ const createType=(s,forInsert,insertSuffix,sql,typeMap,tableMap,tsTypes,zodTypes
  * @returns {string}
  */
 const typesToString=(types)=>{
-    types.sort((a,b)=>a.baseName.localeCompare(b.baseName));
+    types.sort((a,b)=>srcTypeOrderName(a).localeCompare(srcTypeOrderName(b)));
     return types.map(t=>t.src.join('')).join('\n\n');
+}
+
+/**
+ * @param {SrcType} type
+ */
+const srcTypeOrderName=(type)=>`${type.order.toString().padStart(3,'0')}_${type.baseName}`;
+
+/**
+ * @param {import('pgsql-ast-parser').CreateEnumType} s
+ * @param {string} sql
+ * @param {Record<string,TypeMapping>} typeMap
+ * @param {SrcType[]} tsTypes
+ * @param {SrcType[]} zodTypes
+ * @param {SrcType[]} convoTypes
+ */
+const createEnum=(s,sql,typeMap,tsTypes,zodTypes,convoTypes)=>{
+    const sqlName=s.name.name;
+    const name=toTsName(sqlName);
+
+    typeMap[sqlName]={
+        _default:name,
+        zod:`${name}Schema`
+    };
+
+
+
+    /** @type {SrcType} */
+    const tsType={name,baseName:name,src:[],type:'enum',order:1};
+    /** @type {SrcType} */
+    const zodType={name,baseName:name,src:[],type:'enum',order:1};
+    /** @type {SrcType} */
+    const convoType={name,baseName:name,src:[],type:'enum',order:1};
+
+
+    const typeDescription=s._location?findComment(sql,s._location.start):undefined;
+
+    if(typeDescription){
+        tsType.src.push(`/**\n`);
+        tsType.src.push(`${toJsDoc(typeDescription,'',true)}\n`);
+        tsType.src.push(' */\n');
+    }
+    zodType.src.push(`/**\n`);
+    if(typeDescription){
+        zodType.src.push(`${toJsDoc(typeDescription,'',true)}\n`);
+    }
+    zodType.src.push(` * Zod schema for the "${name}" union\n`);
+    zodType.src.push(' */\n');
+    
+    tsType.src.push(`export type ${name}=`);
+    zodType.src.push(`export const ${name}Schema=z.enum([`);
+    convoType.src.push(`${name} = enum(`);
+
+
+    const values=[];
+    for(const c of s.values){
+        if(typeof c.value !== 'string'){
+            continue;
+        }
+
+        values.push(JSON.stringify(c.value));
+    }
+
+    tsType.src.push(values.join('|'));
+    zodType.src.push(values.join(','));
+    convoType.src.push(values.join(' '));
+
+
+    tsType.src.push(';');
+    zodType.src.push(`])${typeDescription?`.describe(${JSON.stringify(typeDescription)})`:''};`);
+    convoType.src.push(')')
+
+    tsTypes.push(tsType);
+    zodTypes.push(zodType);
+    convoTypes.push(convoType);
 }
 
 main();

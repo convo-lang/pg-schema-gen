@@ -20,5 +20,8 @@
   "homepage": "https://github.com/convo-lang/pg-schema-gen#readme",
   "dependencies": {
     "pgsql-ast-parser": "^12.0.1"
+  },
+  "devDependencies": {
+    "zod": "*"
   }
 }

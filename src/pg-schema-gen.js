@@ -3,6 +3,7 @@
 
 import { parse } from 'pgsql-ast-parser';
 import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, readJsonAsync, findComment, toJsDoc, toConvoComment, toTsName} from "./utils.js";
+import Path from "node:path";
 
 /**
  * @typedef Args
@@ -13,6 +14,7 @@ import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, read
  * @prop {string|undefined} insertSuffix A suffix added to insert types
  * @prop {string|undefined} silent Silences console logging
  * @prop {string|undefined} verbose Enables verbose output
+ * @prop {string[]|undefined} outAry Array of directory paths to schema file to.
  * @prop {string[]|undefined} tsOutAry Array of paths to write TypeScript types to.
  * @prop {string[]|undefined} zodOutAry Array of paths to write Zod Schemas to
  * @prop {string[]|undefined} convoOutAry Array of paths to write Convo-Lang structs to
@@ -133,6 +135,36 @@ const main=async ()=>{
     /** @type {Args} */
     const args=parseArgs();
 
+    if(args.outAry?.length){
+        if(!args.tsOutAry?.length){
+            args.tsOutAry=args.outAry.map(p=>Path.join(p,'types-ts.ts'));
+        }
+        if(!args.zodOutAry?.length){
+            args.zodOutAry=args.outAry.map(p=>Path.join(p,'types-zod.ts'));
+        }
+        if(!args.convoOutAry?.length){
+            args.convoOutAry=args.outAry.map(p=>Path.join(p,'types-convo.convo'));
+        }
+        if(!args.typeMapOutAry?.length){
+            args.typeMapOutAry=args.outAry.map(p=>Path.join(p,'type-map.json'));
+        }
+        if(!args.tableMapOutAry?.length){
+            args.tableMapOutAry=args.outAry.map(p=>Path.join(p,'type-table-map.json'));
+        }
+        if(!args.tsTableMapOutAry?.length){
+            args.tsTableMapOutAry=args.outAry.map(p=>Path.join(p,'type-table-map-ts.ts'));
+        }
+        if(!args.typeListOutAry?.length){
+            args.typeListOutAry=args.outAry.map(p=>Path.join(p,'type-list.json'));
+        }
+        if(!args.typeListShortOutAry?.length){
+            args.typeListShortOutAry=args.outAry.map(p=>Path.join(p,'type-list-short.json'));
+        }
+        if(!args.parsedSqlOutAry?.length){
+            args.parsedSqlOutAry=args.outAry.map(p=>Path.join(p,'type-sql-src.json'));
+        }
+    }
+
     if(args.verbose==='true'){
         verbose(true);
     }
@@ -182,7 +214,7 @@ const main=async ()=>{
     const statements=parse(sql,{locationTracking:true});
 
     if(args.parsedSqlOutAry){
-        print('Write parsed SQL')
+        print('Write parsed SQL');
         await writeAryAsync(args.parsedSqlOutAry,JSON.stringify(statements,null,4));
     }
 

@@ -1,5 +1,8 @@
 # pg-schema-gen
-CLI tool to generate simple readable TypeScript, Zod and other schema files based on create table SQL statements.
+CLI tool to generate simple readable TypeScript, Zod and other schema files based on SQL schema files.
+
+pg-schema-gen is used by the [Convo-Make](https://github.com/convo-lang/convo-lang) generative build system to create schema a type files
+based on generated database schemas.
 
 Arguments:
 
@@ -13,6 +16,7 @@ Arguments:
 | --insert-suffix       | suffix  |       | Suffix added to insert type                     |
 | --silent              | boolean |       | Silence console logging                         |
 | --verbose             | boolean |       | Enable verbose output                           |
+| --out                 | path    | Y     | Path to directory to written all outputs to     |
 | --ts-out              | path    | Y     | Path to write TypeScript type                   |
 | --zod-out             | path    | Y     | Path to write Zod schema                        |
 | --convo-out           | path    | Y     | Path to write Convo-Lang struct                 |
@@ -23,12 +27,20 @@ Arguments:
 | --type-list-short-out | path    | Y     | Path to write shortened type list as JSON array |
 | --parsed-sql-out      | path    | Y     | Path to write parsed SQL                        |
 
-
 (multi) arguments can be specified multiple times.
 
+The `--out` argument provides provides a default path for all other output arguments. 
+
 ## Example
+
+Write all schema files to the `src/schema` directory
 ``` sh
-npx pg-schema-gen --sql-file schema.sql --ts-out src/types.ts --zod-out src/schemas.ts
+npx pg-schema-gen --sql-file schema.sql --out src/schema
+```
+
+Write TypeScript type and Zod Schemas to custom paths:
+``` sh
+npx pg-schema-gen --sql-file schema.sql --ts-out src/types.ts --zod-out src/zod-schemas.ts
 ```
 
 Source SQL: `schema.sql`
@@ -99,7 +111,7 @@ export interface Account
  * @table account
  * @schema public
  */
-export interface AccountInsertion
+export interface Account_insert
 {
     id?:string;
     name:string;
@@ -131,7 +143,7 @@ export interface Data
  * @table data
  * @schema public
  */
-export interface DataInsertion
+export interface Data_insert
 {
     id?:string;
     account_id:string;
@@ -173,7 +185,7 @@ export interface User
  * @table user
  * @schema public
  */
-export interface UserInsertion
+export interface User_insert
 {
     id?:string;
     created_at?:string;
@@ -184,7 +196,7 @@ export interface UserInsertion
 }
 ```
 
-Zod Schemas: `src/schemas.ts`
+Zod Schemas: `src/zod-schemas.ts`
 ``` ts
 import { z } from "zod";
 
@@ -201,12 +213,12 @@ export const AccountSchema=z.object({
 });
 
 /**
- * Zod schema for the "AccountInsertion" interface
+ * Zod schema for the "Account_insert" interface
  * @insertFor Account
  * @table account
  * @schema public
  */
-export const AccountInsertionSchema=z.object({
+export const Account_insertSchema=z.object({
     id:z.string().optional(),
     name:z.string(),
     created_at:z.string().optional(),
@@ -232,12 +244,12 @@ export const DataSchema=z.object({
 }).describe("extra data for stuff");
 
 /**
- * Zod schema for the "DataInsertion" interface
+ * Zod schema for the "Data_insert" interface
  * @insertFor Data
  * @table data
  * @schema public
  */
-export const DataInsertionSchema=z.object({
+export const Data_insertSchema=z.object({
     id:z.string().optional(),
     account_id:z.string(),
     created_at:z.string().optional(),
@@ -265,12 +277,12 @@ export const UserSchema=z.object({
 });
 
 /**
- * Zod schema for the "UserInsertion" interface
+ * Zod schema for the "User_insert" interface
  * @insertFor User
  * @table user
  * @schema public
  */
-export const UserInsertionSchema=z.object({
+export const User_insertSchema=z.object({
     id:z.string().optional(),
     created_at:z.string().optional(),
     name:z.string(),

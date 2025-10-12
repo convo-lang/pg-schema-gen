@@ -2,15 +2,4 @@
 set -e
 cd "$(dirname "$0")"
 
-node src/pg-schema-gen.js --sql-file ./test-files/test-2.sql \
-    --parsed-sql-out tmp/parsed-sql.json \
-    --ts-out tmp/types.ts \
-    --zod-out tmp/zod.ts \
-    --convo-out tmp/types.convo \
-    --type-map-out tmp/type-map.json \
-    --type-map-out tmp/type-map.json \
-    --table-map-out tmp/table-map.json \
-    --ts-table-map-out tmp/table-map.ts \
-    --type-list-out tmp/type-list.json \
-    --type-list-short-out tmp/type-list-short.json \
-    --verbose
+node src/pg-schema-gen.js --sql-file ./test-files/test-2.sql --out tmp --verbose

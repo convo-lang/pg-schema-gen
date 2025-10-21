@@ -14,6 +14,7 @@ import Path from "node:path";
  * @prop {string|undefined} insertSuffix A suffix added to insert types
  * @prop {string|undefined} silent Silences console logging
  * @prop {string|undefined} verbose Enables verbose output
+ * @prop {string|undefined} schemaBarrelImportBase Base path to import exported exports from in the schema barrel
  * @prop {string[]|undefined} outAry Array of directory paths to schema file to.
  * @prop {string[]|undefined} tsOutAry Array of paths to write TypeScript types to.
  * @prop {string[]|undefined} zodOutAry Array of paths to write Zod Schemas to
@@ -21,6 +22,8 @@ import Path from "node:path";
  * @prop {string[]|undefined} typeMapOutAry Array of paths to write the computed type map to
  * @prop {string[]|undefined} tableMapOutAry Array of paths to write the table map to as JSON
  * @prop {string[]|undefined} tsTableMapOutAry Array of paths to write the table map to as an exported JSON object
+ * @prop {string[]|undefined} tsTypeDefOutAry Array of paths to write type definitions to.
+ * @prop {string[]|undefined} tsSchemaBarrelOutAry Array of paths to schema barrel file to.
  * @prop {string[]|undefined} typeListOutAry Array of paths to write the type list as a JSON array to.
  * @prop {string[]|undefined} typeListShortOutAry Array of paths to write the shortened type list as a JSON array to.
  *                                                Type props are written as an array of strings
@@ -44,6 +47,7 @@ import Path from "node:path";
   * @prop {string} name
   * @prop {string|undefined} description
   * @prop {'type'|'enum'} type
+  * @prop {string|undefined} primaryKey
   * @prop {string|undefined} sqlTable
   * @prop {string|undefined} sqlSchema
   * @prop {PropDef[]|undefined} props
@@ -53,6 +57,7 @@ import Path from "node:path";
   * @typedef PropDef
   * @prop {string} name
   * @prop {TypeMapping} type
+  * @prop {boolean|undefined} primary
   * @prop {string|undefined} description
   * @prop {string|undefined} sqlDef
   * @prop {boolean|undefined} optional
@@ -153,6 +158,12 @@ const main=async ()=>{
         }
         if(!args.tsTableMapOutAry?.length){
             args.tsTableMapOutAry=args.outAry.map(p=>Path.join(p,'type-table-map-ts.ts'));
+        }
+        if(!args.tsTypeDefOutAry?.length){
+            args.tsTypeDefOutAry=args.outAry.map(p=>Path.join(p,'type-defs.ts'));
+        }
+        if(!args.tsSchemaBarrelOutAry?.length){
+            args.tsSchemaBarrelOutAry=args.outAry.map(p=>Path.join(p,'schema.ts'));
         }
         if(!args.typeListOutAry?.length){
             args.typeListOutAry=args.outAry.map(p=>Path.join(p,'type-list.json'));
@@ -260,7 +271,9 @@ const main=async ()=>{
         }
     }
 
-    typeDefs.sort((a,b)=>a.name.localeCompare(b.name));
+    sortObj(typeDefs);
+    const tsOut0=args.tsOutAry?.[0];
+    const zodOut0=args.zodOutAry?.[0];
 
     await Promise.all([
         args.tsOutAry?writeAryAsync(args.tsOutAry,typesToString(tsTypes)):null,
@@ -269,6 +282,11 @@ const main=async ()=>{
             ...t,
             props:t.props?.map(p=>p.name)
         })),null,4)):null,
+        args.tsTypeDefOutAry?writeAryAsync(args.tsTypeDefOutAry,createTypeDescriptionFile(
+            typeDefs,
+            tsOut0?Path.basename(tsOut0):undefined,
+            zodOut0?Path.basename(zodOut0):undefined,
+        )):null,
         args.zodOutAry?writeAryAsync(args.zodOutAry,typesToString(zodTypes),`import { z } from "zod";\n\n`):null,
         args.convoOutAry?writeAryAsync(args.convoOutAry,typesToString(convoTypes),'> define\n\n'):null,
         args.typeMapOutAry?writeAryAsync(args.typeMapOutAry,JSON.stringify(typeMap,null,4)):null,
@@ -276,6 +294,160 @@ const main=async ()=>{
         args.tsTableMapOutAry?writeAryAsync(args.tsTableMapOutAry,JSON.stringify(tableMap,null,4),`export const tableMap=`):null,
     ]);
 
+    // always write barrel file last
+    if(args.tsSchemaBarrelOutAry){
+        await writeAryAsync(args.tsSchemaBarrelOutAry,getSchemaBarrel(
+            args.schemaBarrelImportBase,
+            args.tsTypeDefOutAry?.[0],
+            args.tsTableMapOutAry?.[0],
+            args.tsOutAry?.[0],
+            args.zodOutAry?.[0]
+        ))
+    }
+
+}
+
+const getSchemaBarrel=(
+    schemaBarrelImportBase='./',
+    typeDefsOut,
+    tableMapOut,
+    typesOut,
+    zodOut
+)=>{
+    const out=[];
+    if(typeDefsOut){
+        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(typeDefsOut)}";\n`)
+    }
+    if(tableMapOut){
+        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(tableMapOut)}";\n`)
+    }
+    if(typesOut){
+        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(typesOut)}";\n`)
+    }
+    if(zodOut){
+        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(zodOut)}";\n`)
+    }
+
+    return out.join('');
+}
+
+/**
+ * Creates a TypeScript file that defines types a object
+ * @param {TypeDef[]} types 
+ */
+const createTypeDescriptionFile=(types,typesImport='types.ts',zodImport='types-zod.ts')=>{
+    const tt=types.filter(t=>t.type==='type');
+    const out=[
+        
+`import type { ${tt.map(t=>`${t.name}, ${t.name}_insert`).join(', ')} } from "${typesImport}";
+import { ${tt.map(t=>`${t.name}Schema, ${t.name}_insertSchema`).join(', ')} } from "${zodImport}";
+import type { ZodType } from "zod";
+
+export interface TypeMapping
+{
+    name:string;
+    ts?:string;
+    zod?:string;
+    convo?:string;
+    sql?:string;
+}
+
+export interface PropDef
+{
+    name:string;
+    type:TypeMapping;
+    primary?:boolean;
+    description?:string;
+    sqlDef?:string;
+    optional?:boolean;
+    hasDefault?:boolean;
+    isArray?:boolean;
+    arrayDimensions?:number;
+}
+
+export interface TypeDef<
+    TValue extends Record<string,any>,
+    TInsert extends Record<string,any>
+>{
+
+
+    name:string;
+    description?:string;
+    type:'type'|'enum';
+    primaryKey:(keyof TValue) & (keyof TInsert);
+    sqlTable?:string;
+    sqlSchema?:string;
+    zodSchema?:ZodType;
+    zodInsertSchema?:ZodType;
+    props:PropDef[];
+}
+
+export const typeDefs={
+`
+    ];
+    
+    for(const type of tt){
+        const json=JSON.stringify(type,null,4);
+        out.push(
+`    ${type.name}: ${
+        json.substring(0,json.length-1).trim()
+            .replace(/\n( *)"(\w+)"/g,(_,s,p)=>`\n${s}${p}`)
+            .replace(/\n/g,'\n    ')
+    },
+        zodSchema: ${type.name}Schema,
+        zodInsertSchema: ${type.name}_insertSchema,
+    } as TypeDef<${type.name},${type.name}_insert> satisfies TypeDef<${type.name},${type.name}_insert>,\n\n`
+        )
+    }
+
+    out.push('\n} as const;\n\n');
+
+    out.push(`export const typeList=[\n`);
+    for(const type of tt){
+        out.push(`    typeDefs.${type.name},\n`)
+    }
+    out.push('] as const;\n');
+
+    return out.join('');
+}
+
+const sortObj=(obj)=>{
+    if(Array.isArray(obj)){
+        let allHasNames=true;
+        for(const v of obj){
+            if(typeof v?.name !== 'string'){
+                allHasNames=false;
+            }
+            if(v && (typeof v ==='object')){
+                sortObj(v);
+            }
+        }
+        if(obj.length && allHasNames){
+            obj.sort((a,b)=>a.name.localeCompare(b.name));
+        }
+    }else{
+        const copy={...obj}
+        const keys=Object.keys(obj);
+        keys
+            .sort()
+            .sort((a,b)=>{
+                const av=obj[a];
+                const bv=obj[b];
+                return (av && (typeof av === 'object')?1:0)-(bv && (typeof bv === 'object')?1:0);
+            })
+            .sort((a,b)=>(a==='name'?0:1)-(b==='name'?0:1));
+        
+        for(const e in obj){
+            delete obj[e];
+        }
+        for(const key of keys){
+            const v=copy[key];
+            obj[key]=v;
+            if(v && (typeof v ==='object')){
+                sortObj(v);
+            }
+        }
+    }
 }
 
 /**
@@ -360,7 +532,7 @@ const createType=(
         let arrayDepth=0;
         let dataType=c.dataType;
         const notNull=c.constraints?.some(c=>c.type==='not null');
-        const isPrimary=c.constraints?.some(c=>c.type==='primary key');
+        const isPrimary=c.constraints?.some(c=>c.type==='primary key') || s.constraints.some(c=>c.type==='primary key' && c.columns.some(c=>c.name===prop));
         const hasDefault=c.constraints?.some(c=>c.type==='default');
         const required=forInsert?((notNull || isPrimary) && !hasDefault):(notNull || isPrimary);
         const optional=!required;
@@ -408,6 +580,7 @@ const createType=(
                 ts:mt.ts??mt.name,
                 sql:sqlType.name,
             },
+            primary:isPrimary?true:undefined,
             description:description||undefined,
             sqlDef:c._location?sql.substring(c._location.start,c._location.end):undefined,
             optional:optional||undefined,
@@ -427,6 +600,7 @@ const createType=(
     zodTypes.push(zodType);
     convoTypes.push(convoType);
 
+    typeDef.primaryKey=typeDef.props.find(p=>p.primary)?.name;
     if(!forInsert){
         typeDefs.push(typeDef);
     }
@@ -474,7 +648,7 @@ const createEnum=(
     const typeDescription=s._location?findComment(sql,s._location.start):undefined;
 
     /** @type {TypeDef} */
-    const typeDef={name,type:'type',description:typeDescription};
+    const typeDef={name,type:'enum',description:typeDescription};
     /** @type {SrcType} */
     const tsType={name,baseName:name,src:[],type:'enum',order:1};
     /** @type {SrcType} */

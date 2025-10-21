@@ -399,8 +399,8 @@ export interface PropDef
 }
 
 export interface TypeDef<
-    TValue extends Record<string,any>,
-    TInsert extends Record<string,any>
+    TValue extends Record<string,any>=Record<string,any>,
+    TInsert extends Record<string,any>=Record<string,any>
 >{
 
 

@@ -14,7 +14,9 @@ import Path from "node:path";
  * @prop {string|undefined} insertSuffix A suffix added to insert types
  * @prop {string|undefined} silent Silences console logging
  * @prop {string|undefined} verbose Enables verbose output
- * @prop {string|undefined} schemaBarrelImportBase Base path to import exported exports from in the schema barrel
+ * @prop {string|undefined} barrelBase Base path to import exported exports from in the schema barrel
+ * @prop {string|undefined} disableSchemaBarrel Disables the default schema barrel
+ * @prop {string|undefined} importExt Sets the import extension used with TypeScript files
  * @prop {string[]|undefined} outAry Array of directory paths to schema file to.
  * @prop {string[]|undefined} tsOutAry Array of paths to write TypeScript types to.
  * @prop {string[]|undefined} zodOutAry Array of paths to write Zod Schemas to
@@ -162,9 +164,6 @@ const main=async ()=>{
         if(!args.tsTypeDefOutAry?.length){
             args.tsTypeDefOutAry=args.outAry.map(p=>Path.join(p,'type-defs.ts'));
         }
-        if(!args.tsSchemaBarrelOutAry?.length){
-            args.tsSchemaBarrelOutAry=args.outAry.map(p=>Path.join(p,'schema.ts'));
-        }
         if(!args.typeListOutAry?.length){
             args.typeListOutAry=args.outAry.map(p=>Path.join(p,'type-list.json'));
         }
@@ -173,6 +172,12 @@ const main=async ()=>{
         }
         if(!args.parsedSqlOutAry?.length){
             args.parsedSqlOutAry=args.outAry.map(p=>Path.join(p,'type-sql-src.json'));
+        }
+        if(!args.tsSchemaBarrelOutAry?.length && !args.disableSchemaBarrel){
+            args.tsSchemaBarrelOutAry=args.outAry.map(p=>p+'.ts');
+            if(!args.barrelBase){
+                args.barrelBase=`./${Path.basename(args.outAry[0]??'schema')}/`;
+            }
         }
     }
 
@@ -284,8 +289,9 @@ const main=async ()=>{
         })),null,4)):null,
         args.tsTypeDefOutAry?writeAryAsync(args.tsTypeDefOutAry,createTypeDescriptionFile(
             typeDefs,
-            tsOut0?Path.basename(tsOut0):undefined,
-            zodOut0?Path.basename(zodOut0):undefined,
+            tsOut0?'./'+Path.basename(tsOut0):undefined,
+            zodOut0?'./'+Path.basename(zodOut0):undefined,
+            args.importExt
         )):null,
         args.zodOutAry?writeAryAsync(args.zodOutAry,typesToString(zodTypes),`import { z } from "zod";\n\n`):null,
         args.convoOutAry?writeAryAsync(args.convoOutAry,typesToString(convoTypes),'> define\n\n'):null,
@@ -297,50 +303,77 @@ const main=async ()=>{
     // always write barrel file last
     if(args.tsSchemaBarrelOutAry){
         await writeAryAsync(args.tsSchemaBarrelOutAry,getSchemaBarrel(
-            args.schemaBarrelImportBase,
+            args.barrelBase,
             args.tsTypeDefOutAry?.[0],
             args.tsTableMapOutAry?.[0],
             args.tsOutAry?.[0],
-            args.zodOutAry?.[0]
+            args.zodOutAry?.[0],
+            args.importExt
         ))
     }
 
 }
 
 const getSchemaBarrel=(
-    schemaBarrelImportBase='./',
+    barrelBase='./',
     typeDefsOut,
     tableMapOut,
     typesOut,
-    zodOut
+    zodOut,
+    exts
 )=>{
     const out=[];
     if(typeDefsOut){
-        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(typeDefsOut)}";\n`)
+        out.push(`export * from "${barrelBase}${getFileName(typeDefsOut,exts)}";\n`)
     }
     if(tableMapOut){
-        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(tableMapOut)}";\n`)
+        out.push(`export * from "${barrelBase}${getFileName(tableMapOut,exts)}";\n`)
     }
     if(typesOut){
-        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(typesOut)}";\n`)
+        out.push(`export * from "${barrelBase}${getFileName(typesOut,exts)}";\n`)
     }
     if(zodOut){
-        out.push(`export * from "${schemaBarrelImportBase}${Path.basename(zodOut)}";\n`)
+        out.push(`export * from "${barrelBase}${getFileName(zodOut,exts)}";\n`)
     }
 
     return out.join('');
 }
 
 /**
+ * @param {string} path
+ * @param {string|undefined} ext 
+ * @returns {string}
+ */
+const getFileName=(path,ext)=>{
+    path=Path.basename(path);
+    return replaceExt(path,ext);
+}
+/**
+ * @param {string} path
+ * @param {string|undefined} ext 
+ * @returns {string}
+ */
+const replaceExt=(path,ext)=>{
+    const i=path.lastIndexOf('.');
+    if(i!==-1){
+        path=path.substring(0,i);
+    }
+    if(ext){
+        path+='.'+ext;
+    }
+    return path;
+}
+
+/**
  * Creates a TypeScript file that defines types a object
  * @param {TypeDef[]} types 
  */
-const createTypeDescriptionFile=(types,typesImport='types.ts',zodImport='types-zod.ts')=>{
+const createTypeDescriptionFile=(types,typesImport='./types.ts',zodImport='./types-zod.ts',ext)=>{
     const tt=types.filter(t=>t.type==='type');
     const out=[
         
-`import type { ${tt.map(t=>`${t.name}, ${t.name}_insert`).join(', ')} } from "${typesImport}";
-import { ${tt.map(t=>`${t.name}Schema, ${t.name}_insertSchema`).join(', ')} } from "${zodImport}";
+`import type { ${tt.map(t=>`${t.name}, ${t.name}_insert`).join(', ')} } from "${replaceExt(typesImport,ext)}";
+import { ${tt.map(t=>`${t.name}Schema, ${t.name}_insertSchema`).join(', ')} } from "${replaceExt(zodImport,ext)}";
 import type { ZodType } from "zod";
 
 export interface TypeMapping

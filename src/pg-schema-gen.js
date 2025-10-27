@@ -1,71 +1,77 @@
 #!/usr/bin/env node
+// @ts-check
 "use strict";
 
-import { parse } from 'pgsql-ast-parser';
-import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, readJsonAsync, findComment, toJsDoc, toConvoComment, toTsName} from "./utils.js";
+import { parse } from 'pgsql-parser';
+import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, readJsonAsync, findComment, toJsDoc, toConvoComment, toTsName, removeSqlComments, removeTrailingComma} from "./utils.js";
 import Path from "node:path";
+import { getPgColumnDef, getPgConstraint, getPgConstraints, getPgCreateEnum, getPgCreateTable, getPgStrings, getPgTypeName } from './pg-types.js';
+
+/**
+ * @import * as Pg from "./pg-types.js"
+ */
 
 /**
  * @typedef Args
- * @prop {string[]|undefined} sqlAry Array of sql statements
- * @prop {string[]|undefined} sqlFileAry Array of sql files to load as statements
- * @prop {string[]|undefined} typeMapFileAry Array of type map json files
- * @prop {string|undefined} clearTypeMap Clears all default type mappings 
- * @prop {string|undefined} insertSuffix A suffix added to insert types
- * @prop {string|undefined} silent Silences console logging
- * @prop {string|undefined} verbose Enables verbose output
- * @prop {string|undefined} barrelBase Base path to import exported exports from in the schema barrel
- * @prop {string|undefined} disableSchemaBarrel Disables the default schema barrel
- * @prop {string|undefined} importExt Sets the import extension used with TypeScript files
- * @prop {string[]|undefined} outAry Array of directory paths to schema file to.
- * @prop {string[]|undefined} tsOutAry Array of paths to write TypeScript types to.
- * @prop {string[]|undefined} zodOutAry Array of paths to write Zod Schemas to
- * @prop {string[]|undefined} convoOutAry Array of paths to write Convo-Lang structs to
- * @prop {string[]|undefined} typeMapOutAry Array of paths to write the computed type map to
- * @prop {string[]|undefined} tableMapOutAry Array of paths to write the table map to as JSON
- * @prop {string[]|undefined} tsTableMapOutAry Array of paths to write the table map to as an exported JSON object
- * @prop {string[]|undefined} tsTypeDefOutAry Array of paths to write type definitions to.
- * @prop {string[]|undefined} tsSchemaBarrelOutAry Array of paths to schema barrel file to.
- * @prop {string[]|undefined} typeListOutAry Array of paths to write the type list as a JSON array to.
- * @prop {string[]|undefined} typeListShortOutAry Array of paths to write the shortened type list as a JSON array to.
+ * @prop {string[]=} sqlAry Array of sql statements
+ * @prop {string[]=} sqlFileAry Array of sql files to load as statements
+ * @prop {string[]=} typeMapFileAry Array of type map json files
+ * @prop {string=} clearTypeMap Clears all default type mappings 
+ * @prop {string=} insertSuffix A suffix added to insert types
+ * @prop {string=} silent Silences console logging
+ * @prop {string=} verbose Enables verbose output
+ * @prop {string=} barrelBase Base path to import exported exports from in the schema barrel
+ * @prop {string=} disableSchemaBarrel Disables the default schema barrel
+ * @prop {string=} importExt Sets the import extension used with TypeScript files
+ * @prop {string[]=} outAry Array of directory paths to schema file to.
+ * @prop {string[]=} tsOutAry Array of paths to write TypeScript types to.
+ * @prop {string[]=} zodOutAry Array of paths to write Zod Schemas to
+ * @prop {string[]=} convoOutAry Array of paths to write Convo-Lang structs to
+ * @prop {string[]=} typeMapOutAry Array of paths to write the computed type map to
+ * @prop {string[]=} tableMapOutAry Array of paths to write the table map to as JSON
+ * @prop {string[]=} tsTableMapOutAry Array of paths to write the table map to as an exported JSON object
+ * @prop {string[]=} tsTypeDefOutAry Array of paths to write type definitions to.
+ * @prop {string[]=} tsSchemaBarrelOutAry Array of paths to schema barrel file to.
+ * @prop {string[]=} typeListOutAry Array of paths to write the type list as a JSON array to.
+ * @prop {string[]=} typeListShortOutAry Array of paths to write the shortened type list as a JSON array to.
  *                                                Type props are written as an array of strings
- * @prop {string[]|undefined} parsedSqlOutAry Array of paths to write parsed SQL to
+ * @prop {string[]=} parsedSqlOutAry Array of paths to write parsed SQL to
  */
 
  /**
   * @typedef SrcType
   * @prop {string} name
   * @prop {string} baseName
-  * @prop {string|undefined} description
-  * @prop {boolean|undefined} insert
+  * @prop {string=} description
+  * @prop {boolean=} insert
   * @prop {string[]} src
   * @prop {'type'|'enum'} type
   * @prop {number} order
-  * @prop {SrcProp[]} props
+  * @prop {PropDef[]} props
   */
 
  /**
   * @typedef TypeDef
   * @prop {string} name
-  * @prop {string|undefined} description
+  * @prop {string=} description
   * @prop {'type'|'enum'} type
-  * @prop {string|undefined} primaryKey
-  * @prop {string|undefined} sqlTable
-  * @prop {string|undefined} sqlSchema
-  * @prop {PropDef[]|undefined} props
+  * @prop {string=} primaryKey
+  * @prop {string=} sqlTable
+  * @prop {string=} sqlSchema
+  * @prop {PropDef[]} props
   */
 
  /**
   * @typedef PropDef
   * @prop {string} name
   * @prop {TypeMapping} type
-  * @prop {boolean|undefined} primary
-  * @prop {string|undefined} description
-  * @prop {string|undefined} sqlDef
-  * @prop {boolean|undefined} optional
-  * @prop {boolean|undefined} hasDefault
-  * @prop {boolean|undefined} isArray
-  * @prop {number|undefined} arrayDimensions
+  * @prop {boolean=} primary
+  * @prop {string=} description
+  * @prop {string=} sqlDef
+  * @prop {boolean=} optional
+  * @prop {boolean=} hasDefault
+  * @prop {boolean=} isArray
+  * @prop {number=} arrayDimensions
   */
 
  /**
@@ -77,10 +83,10 @@ import Path from "node:path";
  /**
   * @typedef TypeMapping
   * @prop {string} name
-  * @prop {string|undefined} ts
-  * @prop {string|undefined} zod
-  * @prop {string|undefined} convo
-  * @prop {string|undefined} sql
+  * @prop {string=} ts
+  * @prop {string=} zod
+  * @prop {string=} convo
+  * @prop {string=} sql
   */
 
 /** @type {Record<string,TypeMapping>} */
@@ -100,11 +106,11 @@ const defaultTypeMap={
         zod:'z.number().int()',
     },
     int4:{
-        name:'',
+        name:'number',
         zod:'z.number().int()',
     },
     int8:{
-        name:'',
+        name:'number',
         zod:'z.number().int()',
     },
     float:{
@@ -132,6 +138,9 @@ const defaultTypeMap={
         convo:'map',
     },
     bool:{
+        name:'boolean',
+    },
+    boolean:{
         name:'boolean',
     },
 }
@@ -226,12 +235,15 @@ const main=async ()=>{
         }
     }
 
-    const sql=sqlAry.join('\n\n').replace(/TABLESPACE\s+\w+/gi,'');
-    const statements=parse(sql,{locationTracking:true});
+    const sql=sqlAry.join('\n\n');
+    
+    /** @type {import('@pgsql/types').ParseResult} */
+    const parsedSql=await parse(sql);
+    const statements=parsedSql.stmts??[];
 
     if(args.parsedSqlOutAry){
         print('Write parsed SQL');
-        await writeAryAsync(args.parsedSqlOutAry,JSON.stringify(statements,null,4));
+        await writeAryAsync(args.parsedSqlOutAry,JSON.stringify(parsedSql,null,4));
     }
 
     /** @type {TypeDef[]} */
@@ -254,26 +266,20 @@ const main=async ()=>{
 
     // Search for enums first
     for(const s of statements){
-        switch(s.type){
-
-            case 'create enum':
-                createEnum(s,sql,typeMap,typeDefs,tsTypes,zodTypes,convoTypes);
-                break;
-            
-
+        const c=getPgCreateEnum(s);
+        if(!c){
+            continue;
         }
+        createEnum(c,sql,typeMap,typeDefs,tsTypes,zodTypes,convoTypes);
     }
 
     for(const s of statements){
-        switch(s.type){
-
-            case 'create table':
-                createType(s,false,insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
-                createType(s,true,insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
-                break;
-            
-
+        const c=getPgCreateTable(s);
+        if(!c){
+            continue;
         }
+        createType(c,false,insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
+        createType(c,true,insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
     }
 
     sortObj(typeDefs);
@@ -341,7 +347,7 @@ const getSchemaBarrel=(
 
 /**
  * @param {string} path
- * @param {string|undefined} ext 
+ * @param {string=} ext 
  * @returns {string}
  */
 const getFileName=(path,ext)=>{
@@ -350,7 +356,7 @@ const getFileName=(path,ext)=>{
 }
 /**
  * @param {string} path
- * @param {string|undefined} ext 
+ * @param {string=} ext 
  * @returns {string}
  */
 const replaceExt=(path,ext)=>{
@@ -484,7 +490,7 @@ const sortObj=(obj)=>{
 }
 
 /**
- * @param {import('pgsql-ast-parser').CreateTableStatement} s
+ * @param {Pg.PgCreateTable} s
  * @param {boolean} forInsert
  * @param {string} insertSuffix
  * @param {string} sql
@@ -507,31 +513,31 @@ const createType=(
     zodTypes,
     convoTypes
 )=>{
-    const baseName=toTsName(s.name.name);
+    const baseName=toTsName(s.name);
     const name=baseName+(forInsert?insertSuffix:'');
     if(!forInsert){
-        tableMap.toName[s.name.name]=name;
+        tableMap.toName[s.name]=name;
     }
-    tableMap.toTable[name]=s.name.name;
+    tableMap.toTable[name]=s.name;
 
-    const typeDescription=s._location && !forInsert?findComment(sql,s._location.start):undefined;
+    const typeDescription=s.location && !forInsert?findComment(sql,s.location,true):undefined;
 
     /** @type {TypeDef} */
     const typeDef={
         name,
         type:'type',
         description:typeDescription,
-        sqlTable:s.name.name,
-        sqlSchema:s.name.schema,
+        sqlTable:s.name,
+        sqlSchema:s.schema,
         props:[],
     };
 
     /** @type {SrcType} */
-    const tsType={name,baseName,src:[],type:'type',order:2};
+    const tsType={name,baseName,src:[],type:'type',order:2,props:[]};
     /** @type {SrcType} */
-    const zodType={name,baseName,src:[],type:'type',order:2};
+    const zodType={name,baseName,src:[],type:'type',order:2,props:[]};
     /** @type {SrcType} */
-    const convoType={name,baseName,src:[],type:'type',order:2};
+    const convoType={name,baseName,src:[],type:'type',order:2,props:[]};
 
 
     tsType.src.push(`/**\n`);
@@ -543,11 +549,11 @@ const createType=(
         tsType.src.push(` * @insertFor ${baseName}\n`);
         convoType.src.push(`# insertFor: ${baseName}\n`);
     }
-    tsType.src.push(` * @table ${s.name.name}\n`);
-    convoType.src.push(`# table: ${s.name.name}\n`);
-    if(s.name.schema){
-        tsType.src.push(` * @schema ${s.name.schema}\n`);
-        convoType.src.push(`# schema: ${s.name.schema}\n`);
+    tsType.src.push(` * @table ${s.name}\n`);
+    convoType.src.push(`# table: ${s.name}\n`);
+    if(s.schema){
+        tsType.src.push(` * @schema ${s.schema}\n`);
+        convoType.src.push(`# schema: ${s.schema}\n`);
     }
     tsType.src.push(' */\n');
     zodType.src.push(...tsType.src);
@@ -556,30 +562,38 @@ const createType=(
     zodType.src.push(`export const ${name}Schema=z.object({\n`);
     convoType.src.push(`${name} = struct(\n`);
 
-
-    for(const c of s.columns??[]){
-        if(c.kind!=='column'){
+    for(let ti=0;ti<s.tableElts.length;ti++){
+        const tableItem=s.tableElts[ti];
+        if(!tableItem){
             continue;
         }
-        const prop=c.name.name;
-        let arrayDepth=0;
-        let dataType=c.dataType;
-        const notNull=c.constraints?.some(c=>c.type==='not null');
-        const isPrimary=c.constraints?.some(c=>c.type==='primary key') || s.constraints.some(c=>c.type==='primary key' && c.columns.some(c=>c.name===prop));
-        const hasDefault=c.constraints?.some(c=>c.type==='default');
+        const c=getPgColumnDef(tableItem);
+        if( !c ||
+            !c.colname
+        ){
+            continue;
+        }
+        const prop=c.colname;
+        let arrayDepth=c.typeName?.arrayBounds?.length??0;;
+        const dataType=getPgTypeName(c.typeName);
+        if(!dataType){
+            continue;
+        }
+        const constraints=getPgConstraints(c.constraints);
+        const notNull=constraints.some(c=>c.contype==='CONSTR_NOTNULL');
+        const isPrimary=(
+            constraints.some(c=>c.contype==='CONSTR_PRIMARY') ||
+            s.constraintList.some(c=>c.contype==='CONSTR_PRIMARY' && getPgStrings(c.keys).includes(prop))
+        );
+        const hasDefault=constraints.some(c=>c.contype==='CONSTR_DEFAULT');
         const required=forInsert?((notNull || isPrimary) && !hasDefault):(notNull || isPrimary);
         const optional=!required;
-        while(dataType.kind==='array'){
-            arrayDepth++;
-            dataType=dataType.arrayOf
-        }
         
-        /** @type {import('pgsql-ast-parser').BasicDataTypeDef} */
         const sqlType=dataType;
-        const sqlTypeLower=sqlType.name.toLowerCase();
+        const sqlTypeLower=sqlType.toLowerCase();
         const mt=typeMap[sqlTypeLower]??typeMap['_default']??{name:'string'};
 
-        const description=c._location && !forInsert?findComment(sql,c._location.start):undefined;
+        const description=c.location && !forInsert?findComment(sql,c.location):undefined;
 
         if(description){
             tsType.src.push(`${toJsDoc(description,indent)}\n`);
@@ -606,16 +620,20 @@ const createType=(
         }
         zodType.src.push(`${indent}${prop}:${zodProp},\n`);
 
+        const next=getPgColumnDef(s.tableElts[ti+1])??getPgConstraint(s.tableElts[ti+1]);
+
         typeDef.props.push({
             name:prop,
             type:{
                 ...mt,
                 ts:mt.ts??mt.name,
-                sql:sqlType.name,
+                sql:sqlType,
             },
             primary:isPrimary?true:undefined,
             description:description||undefined,
-            sqlDef:c._location?sql.substring(c._location.start,c._location.end):undefined,
+            sqlDef:c.location?removeTrailingComma(removeSqlComments(sql.substring(c.location,(
+                next?.location??s.endLocation
+            )))):undefined,
             optional:optional||undefined,
             hasDefault:hasDefault||undefined,
             isArray:arrayDepth?true:undefined,
@@ -653,7 +671,7 @@ const typesToString=(types)=>{
 const srcTypeOrderName=(type)=>`${type.order.toString().padStart(3,'0')}_${type.baseName}`;
 
 /**
- * @param {import('pgsql-ast-parser').CreateEnumType} s
+ * @param {Pg.PgCreateEnum} s
  * @param {string} sql
  * @param {Record<string,TypeMapping>} typeMap
  * @param {TypeDef[]} typeDefs
@@ -670,7 +688,7 @@ const createEnum=(
     zodTypes,
     convoTypes
 )=>{
-    const sqlName=s.name.name;
+    const sqlName=s.name;
     const name=toTsName(sqlName);
 
     typeMap[sqlName]={
@@ -678,16 +696,16 @@ const createEnum=(
         zod:`${name}Schema`
     };
 
-    const typeDescription=s._location?findComment(sql,s._location.start):undefined;
+    const typeDescription=s.location?findComment(sql,s.location,true):undefined;
 
     /** @type {TypeDef} */
-    const typeDef={name,type:'enum',description:typeDescription};
+    const typeDef={name,type:'enum',description:typeDescription,props:[]};
     /** @type {SrcType} */
-    const tsType={name,baseName:name,src:[],type:'enum',order:1};
+    const tsType={name,baseName:name,src:[],type:'enum',order:1,props:[]};
     /** @type {SrcType} */
-    const zodType={name,baseName:name,src:[],type:'enum',order:1};
+    const zodType={name,baseName:name,src:[],type:'enum',order:1,props:[]};
     /** @type {SrcType} */
-    const convoType={name,baseName:name,src:[],type:'enum',order:1};
+    const convoType={name,baseName:name,src:[],type:'enum',order:1,props:[]};
 
 
     if(typeDescription){
@@ -709,14 +727,7 @@ const createEnum=(
     convoType.src.push(`${name} = enum(`);
 
 
-    const values=[];
-    for(const c of s.values){
-        if(typeof c.value !== 'string'){
-            continue;
-        }
-
-        values.push(JSON.stringify(c.value));
-    }
+    const values=getPgStrings(s.vals).map(s=>JSON.stringify(s));
 
     tsType.src.push(values.join('|'));
     zodType.src.push(values.join(','));

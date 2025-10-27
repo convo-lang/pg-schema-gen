@@ -1,6 +1,9 @@
 # pg-schema-gen
 CLI tool to generate simple readable TypeScript, Zod and other schema files based on SQL schema files.
 
+pg-schema-gen uses [pgsql-parser](https://www.npmjs.com/package/pgsql-parser) to parse SQL files as an
+abstract syntax tree then generates schema files based on the syntax tree.
+
 pg-schema-gen is used by the [Convo-Make](https://github.com/convo-lang/convo-lang) generative build system to create schema a type files
 based on generated database schemas.
 

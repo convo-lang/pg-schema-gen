@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import Path from "node:path";
+import {waitForDebugger} from "node:inspector";
 
 let _silent=false;
 export const silent=(value)=>{
@@ -42,7 +43,7 @@ export const existsAsync=async (path)=>{
 /**
  * @param {string[]} paths 
  * @param {string} content 
- * @param {string|undefined} head 
+ * @param {string=} head 
  */
 export const writeAryAsync=async (paths,content,head)=>{
     if(head){
@@ -128,31 +129,49 @@ export const parseArgs=()=>{
 /**
  * @param {string} sql 
  * @param {number} statementStart 
+ * @param {boolean=} forward 
  * @returns {string|undefined}
  */
-export const findComment=(sql,statementStart)=>{
-    let i=sql.lastIndexOf('\n',statementStart);
+export const findComment=(sql,statementStart,forward)=>{
+    let i=forward?statementStart:sql.lastIndexOf('\n',statementStart);
     if(i===-1){
         return undefined;
     }
+    if(sql.substring(i,1)===';'){
+        i++;
+    }
     const lines=[];
-    i--;
-    while(i>-1){
-        const s=sql.lastIndexOf('\n',i);
+    if(!forward){
+        i--;
+    }
+    while(i>-1 && i<=sql.length){
+        const s=forward?sql.indexOf('\n',i+1):sql.lastIndexOf('\n',i);
         if(s===-1){
             break;
         }
-        const line=sql.substring(s,i+1).trim();
+        let line=(forward?
+            sql.substring(i,s).trim():
+            sql.substring(s,i+1).trim()
+        )
         if(line && !line.startsWith('--')){
             break;
         }
-        lines.push(line.startsWith('-- ')?line.substring(3):line.substring(2));
-        i=s-1;
+        line=line.startsWith('-- ')?line.substring(3):line.substring(2);
+        if(forward){
+            lines.push(line);
+        }else{
+            lines.unshift(line);
+        }
+        if(forward){
+            i=s+1;
+        }else{
+            i=s-1;
+        }
     }
     while(lines[lines.length-1]===''){
         lines.pop();
     }
-    return lines.length?lines.join('\n'):undefined;
+    return lines.length?lines.join('\n').trim():undefined;
 }
 
 export const escapeJsComment=(text)=>text.replace(/\*\//g,'(star)/');
@@ -170,4 +189,20 @@ export const toJsDoc=(text,indent,noEnclose)=>{
 }
 export const toConvoComment=(text,indent)=>{
     return `${indent}# ${text.replace(/\n/g,()=>`\n${indent}# `)}`;
+}
+
+/**
+ * @param {string} text 
+ * @returns {string}
+ */
+export const removeSqlComments=(text)=>{
+    return text.split('\n').map(l=>l.trim()).filter(l=>!l.startsWith('--')).join('\n').trim();
+}
+
+/**
+ * @param {string} text 
+ * @returns {string}
+ */
+export const removeTrailingComma=(text)=>{
+    return text.endsWith(',')?text.substring(0,text.length-1).trim():text;
 }

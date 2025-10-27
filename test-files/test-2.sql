@@ -16,6 +16,13 @@ create type chat_message_role as enum ('system', 'user', 'assistant', 'tool');
 -- Thread status for chat threads
 create type thread_status as enum ('open', 'closed', 'archived');
 
+-- Task status states
+create type public.task_status as enum (
+    'active',
+    'completed',
+    'archived'
+);
+
 -- Accounts represent organizations/tenants
 create table if not exists public.accounts (
     -- Primary key

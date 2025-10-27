@@ -60,7 +60,7 @@ export const getPgCreateEnum=(st)=>{
         return undefined;
     }
 
-    const name=getFirstPgString(s.typeName);
+    const name=getLastPgString(s.typeName);
     if(!name || !s.vals){
         return undefined;
     }
@@ -105,6 +105,24 @@ export const getFirstPgString=(nodes)=>{
         }
     }
     return undefined;
+}
+
+/**
+ * @param {Pg.Node[]|null|undefined} nodes 
+ * @returns {string|undefined}
+ */
+export const getLastPgString=(nodes)=>{
+    if(!nodes){
+        return undefined;
+    }
+    let last=undefined;
+    for(const node of nodes){
+        const str=getPgString(node);
+        if(str!==undefined){
+            last=str;
+        }
+    }
+    return last;
 }
 
 /**

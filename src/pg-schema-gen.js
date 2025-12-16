@@ -3,12 +3,11 @@
 "use strict";
 
 import { parse } from 'pgsql-parser';
-import { verbose, silent, writeAryAsync, print, parseArgs, readStringAsync, readJsonAsync, findComment, toJsDoc, toConvoComment, toTsName, removeSqlComments, removeTrailingComma} from "./utils.js";
 import Path from "node:path";
-import { getPgColumnDef, getPgConstraint, getPgConstraints, getPgCreateEnum, getPgCreateTable, getPgStrings, getPgTypeName } from './pg-types.js';
+import fs from "node:fs/promises";
 
 /**
- * @import * as Pg from "./pg-types.js"
+ * @import * as Pg from "pgsql-parser"
  */
 
 /**
@@ -123,6 +122,9 @@ const defaultTypeMap={
         name:'number',
     },
     numeric:{
+        name:'number',
+    },
+    integer:{
         name:'number',
     },
     json:{
@@ -490,7 +492,7 @@ const sortObj=(obj)=>{
 }
 
 /**
- * @param {Pg.PgCreateTable} s
+ * @param {PgCreateTable} s
  * @param {boolean} forInsert
  * @param {string} insertSuffix
  * @param {string} sql
@@ -671,7 +673,7 @@ const typesToString=(types)=>{
 const srcTypeOrderName=(type)=>`${type.order.toString().padStart(3,'0')}_${type.baseName}`;
 
 /**
- * @param {Pg.PgCreateEnum} s
+ * @param {PgCreateEnum} s
  * @param {string} sql
  * @param {Record<string,TypeMapping>} typeMap
  * @param {TypeDef[]} typeDefs
@@ -743,5 +745,410 @@ const createEnum=(
     convoTypes.push(convoType);
     typeDefs.push(typeDef);
 }
+
+/////////// Utils
+
+let _silent=false;
+export const silent=(value)=>{
+    if(typeof value === 'boolean'){
+        _silent=value;
+    }
+    return _silent;
+}
+
+let _verbose=false;
+export const verbose=(value)=>{
+    if(typeof value === 'boolean'){
+        _verbose=value;
+    }
+    return _verbose;
+}
+
+
+
+export const print=(...args)=>{
+    if(!silent()){
+        console.log(...args);
+    }
+}
+
+/**
+ * 
+ * @param {string} path 
+ * @returns 
+ */
+export const existsAsync=async (path)=>{
+    try{
+        await fs.access(path);
+        return true;
+    }catch{
+        return false;
+    }
+}
+
+/**
+ * @param {string[]} paths 
+ * @param {string} content 
+ * @param {string=} head 
+ */
+export const writeAryAsync=async (paths,content,head)=>{
+    if(head){
+        content=head+content;
+    }
+    print(`Write ${paths.join(', ')}`);
+    await Promise.all(paths.map(async path=>{
+        const dir=Path.dirname(path);
+        if(dir && dir!=='.' && !await existsAsync(dir)){
+             await fs.mkdir(dir,{recursive:true});
+        }
+        await fs.writeFile(path,content);
+    }))
+}
+
+/**
+ * @param {string} path 
+ * @returns {Promise<string>}
+ */
+export const readStringAsync=async (path)=>{
+    try{
+        return (await fs.readFile(path)).toString();
+    }catch(ex){
+        const msg=`Unable to read file at path: ${path}`;
+        console.error(msg,ex);
+        throw new Error(msg);
+    }
+}
+
+/**
+ * @param {string} path 
+ * @returns {Promise<any>}
+ */
+export const readJsonAsync=async (path)=>{
+    const json=await readStringAsync(path);
+    try{
+        return JSON.parse(json);
+    }catch(ex){
+        const msg=`Unable to parse JSON contents of: ${path}`;
+        console.error(msg,ex);
+        throw new Error(msg);
+    }
+}
+
+/**
+ * @returns {Record<string,string|string[]>}
+ */
+export const parseArgs=()=>{
+    /** @type {Record<string,string|string[]>} */
+    const args={}
+
+    for(let i=0;i<process.argv.length;i++){
+
+        /** @type {string} */
+        const arg=process.argv[i];
+        if(!arg?.startsWith('--')){
+            continue;
+        }
+
+        let value='true';
+        let first=true;
+
+        /** @type {string[]} */
+        const allValues=[];
+        for(let n=i+1;n<process.argv.length;n++){
+            const next=process.argv[n];
+            if(next.startsWith('--')){
+                break;
+            }
+            if(first){
+                first=false;
+                value=next;
+            }
+            allValues.push(next);
+        }
+
+        const name=arg.substring(2).replace(/-(\w)/g,(_,c)=>c.toUpperCase());
+        args[name]=value;
+        args[name+'Ary']=allValues;
+    }
+    return args;
+}
+
+/**
+ * @param {string} sql 
+ * @param {number} statementStart 
+ * @param {boolean=} forward 
+ * @returns {string|undefined}
+ */
+export const findComment=(sql,statementStart,forward)=>{
+    let i=forward?statementStart:sql.lastIndexOf('\n',statementStart);
+    if(i===-1){
+        return undefined;
+    }
+    if(sql.substring(i,1)===';'){
+        i++;
+    }
+    const lines=[];
+    if(!forward){
+        i--;
+    }
+    while(i>-1 && i<=sql.length){
+        const s=forward?sql.indexOf('\n',i+1):sql.lastIndexOf('\n',i);
+        if(s===-1){
+            break;
+        }
+        let line=(forward?
+            sql.substring(i,s).trim():
+            sql.substring(s,i+1).trim()
+        )
+        if(line && !line.startsWith('--')){
+            break;
+        }
+        line=line.startsWith('-- ')?line.substring(3):line.substring(2);
+        if(forward){
+            lines.push(line);
+        }else{
+            lines.unshift(line);
+        }
+        if(forward){
+            i=s+1;
+        }else{
+            i=s-1;
+        }
+    }
+    while(lines[lines.length-1]===''){
+        lines.pop();
+    }
+    return lines.length?lines.join('\n').trim():undefined;
+}
+
+const escapeJsComment=(text)=>text.replace(/\*\//g,'(star)/');
+
+const toTsName=(name)=>(
+    name.substring(0,1).toUpperCase()+
+    name.substring(1).replace(/_+([a-z])/g,(_,c)=>c.toUpperCase())
+);
+
+const toJsDoc=(text,indent,noEnclose)=>{
+    const body=`${indent} * ${escapeJsComment(text).replace(/\n/g,()=>`\n${indent} * `)}`;
+    return noEnclose?body:`${indent}/**\n${body}\n${indent} */`;
+
+        
+}
+const toConvoComment=(text,indent)=>{
+    return `${indent}# ${text.replace(/\n/g,()=>`\n${indent}# `)}`;
+}
+
+/**
+ * @param {string} text 
+ * @returns {string}
+ */
+const removeSqlComments=(text)=>{
+    return text.split('\n').map(l=>l.trim()).filter(l=>!l.startsWith('--')).join('\n').trim();
+}
+
+/**
+ * @param {string} text 
+ * @returns {string}
+ */
+const removeTrailingComma=(text)=>{
+    return text.endsWith(',')?text.substring(0,text.length-1).trim():text;
+}
+
+///// PG Types
+
+/**
+ *
+ * @typedef PgCreateTableBase
+ * @prop {string} name
+ * @prop {string=} schema
+ * @prop {number} location
+ * @prop {number} endLocation
+ * @prop {Pg.Constraint[]} constraintList
+ * 
+ * @typedef {Omit<Pg.CreateStmt,'tableElts'> & Required<Pick<Pg.CreateStmt,'tableElts'>> & PgCreateTableBase} PgCreateTable
+ *
+ * @typedef PgCreateEnumBase
+ * @prop {string} name
+ * @prop {number} location
+ *
+ * @typedef {Required<Pg.CreateEnumStmt> & PgCreateEnumBase} PgCreateEnum
+ */
+
+
+/**
+ * @param {Pg.RawStmt|null|undefined} st 
+ * @returns {PgCreateTable|undefined}
+ */
+export const getPgCreateTable=(st)=>{
+
+    /** @type {Required<Pg.CreateStmt>} */
+    const s=asAny(st?.stmt)?.CreateStmt;
+    if(!s || !st){
+        return undefined;
+    }
+
+    if(!s.tableElts || !s.relation?.relname){
+        return undefined;
+    }
+
+    const name=s.relation.relname;
+
+    return {
+        ...s,
+        name,
+        schema:s.relation.schemaname,
+        constraintList:getPgConstraints(s.tableElts),
+        location:st.stmt_location??0,
+        endLocation:(st.stmt_location??0)+(st.stmt_len??0),
+    };
+}
+
+/**
+ * @param {Pg.RawStmt|null|undefined} st 
+ * @returns {PgCreateEnum|undefined}
+ */
+export const getPgCreateEnum=(st)=>{
+
+    /** @type {Required<Pg.CreateEnumStmt>} */
+    const s=asAny(st?.stmt)?.CreateEnumStmt;
+    if(!s || !st){
+        return undefined;
+    }
+
+    const name=getLastPgString(s.typeName);
+    if(!name || !s.vals){
+        return undefined;
+    }
+
+    return {
+        ...s,
+        name,
+        location:st.stmt_location??0,
+    };
+}
+
+/**
+ * @param {Pg.Node[]|null|undefined} nodes 
+ * @returns {string[]}
+ */
+export const getPgStrings=(nodes)=>{
+    if(!nodes){
+        return [];
+    }
+    const strings=[];
+    for(const node of nodes){
+        const str=getPgString(node);
+        if(str!==undefined){
+            strings.push(str);
+        }
+    }
+    return strings;
+}
+
+/**
+ * @param {Pg.Node[]|null|undefined} nodes 
+ * @returns {string|undefined}
+ */
+export const getFirstPgString=(nodes)=>{
+    if(!nodes){
+        return undefined;
+    }
+    for(const node of nodes){
+        const str=getPgString(node);
+        if(str!==undefined){
+            return str;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * @param {Pg.Node[]|null|undefined} nodes 
+ * @returns {string|undefined}
+ */
+export const getLastPgString=(nodes)=>{
+    if(!nodes){
+        return undefined;
+    }
+    let last=undefined;
+    for(const node of nodes){
+        const str=getPgString(node);
+        if(str!==undefined){
+            last=str;
+        }
+    }
+    return last;
+}
+
+/**
+ * @param {Pg.Node|null|undefined} node
+ * @returns {string|undefined}
+ */
+export const getPgString=(node)=>{
+    const str=asAny(node)?.String?.sval;
+    return typeof str === 'string'?str:undefined;
+}
+
+/**
+ * @param {Pg.Node|null|undefined} node 
+ * @returns {Pg.ColumnDef|undefined}
+ */
+export const getPgColumnDef=(node)=>{
+    return asAny(node)?.ColumnDef;
+}
+
+/**
+ * @param {Pg.Node|null|undefined} node 
+ * @returns {Pg.Constraint|undefined}
+ */
+export const getPgConstraint=(node)=>{
+    return asAny(node)?.Constraint;
+}
+
+/**
+ * @param {Pg.Node[]|null|undefined} nodes
+ * @returns {Pg.Constraint[]}
+ */
+export const getPgConstraints=(nodes)=>{
+    const list=[];
+    if(!nodes){
+        return list;
+    }
+    for(const n of nodes){
+        const c=getPgConstraint(n);
+        if(c){
+            list.push(c);
+        }
+    }
+    return list;
+}
+
+/**
+ * @param {Pg.TypeName|null|undefined} typeName 
+ * @returns {string|undefined}
+ */
+export const getPgTypeName=(typeName)=>{
+    if(!typeName?.names){
+        return undefined;
+    }
+    let name=undefined;
+    for(const node of typeName.names){
+        const n=getPgString(node);
+        if(!n){
+            continue;
+        }
+        if(!n.startsWith('pg_')){
+            return n;
+        }
+        name=n;
+    }
+    return name;
+}
+
+/**
+ * @param {any} value 
+ * @returns {any}
+ */
+const asAny=(value)=>value;
 
 main();

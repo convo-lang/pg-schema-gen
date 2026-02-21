@@ -37,6 +37,20 @@ import fs from "node:fs/promises";
  * @prop {string[]=} parsedSqlOutAry Array of paths to write parsed SQL to
  */
 
+
+ /**
+  * @typedef MetadataItem
+  * @prop {string} tag
+  * @prop {string|undefined} type
+  * @prop {string} value
+  */
+
+ /**
+  * @typedef MetadataComment
+  * @prop {string} comment
+  * @prop {MetadataItem[]} metadata
+  */
+
  /**
   * @typedef SrcType
   * @prop {string} name
@@ -266,6 +280,37 @@ const main=async ()=>{
         toTable:{},
     }
 
+    /** @type {string[]} */
+    const tsSource=[];
+    /** @type {string[]} */
+    const zodSource=[];
+    /** @type {string[]} */
+    const convoSource=[];
+
+    /**
+     * Get source comments
+     */
+    const sourceComments=parseComment(sql,0,undefined,['source'],[],true)?.metadata??[];
+    for(const s of sourceComments){
+        switch(s.type){
+            case 'ts':
+                tsSource.push(s.value+'\n');
+                break;
+            case 'zod':
+                zodSource.push(s.value+'\n');
+                break;
+            case 'convo':
+                convoSource.push(s.value+'\n');
+                break;
+            case undefined:
+                tsSource.push(s.value+'\n');
+                zodSource.push(s.value+'\n');
+                convoSource.push(s.value+'\n');
+                break;
+        }
+    }
+    
+
     // Search for enums first
     for(const s of statements){
         const c=getPgCreateEnum(s);
@@ -288,8 +333,13 @@ const main=async ()=>{
     const tsOut0=args.tsOutAry?.[0];
     const zodOut0=args.zodOutAry?.[0];
 
+
+    if(tsSource.length){tsSource.push('\n\n')}
+    if(zodSource.length){zodSource.push('\n\n')}
+    if(convoSource.length){convoSource.push('\n\n')}
+
     await Promise.all([
-        args.tsOutAry?writeAryAsync(args.tsOutAry,typesToString(tsTypes)):null,
+        args.tsOutAry?writeAryAsync(args.tsOutAry,typesToString(tsTypes),tsSource.join('')):null,
         args.typeListOutAry?writeAryAsync(args.typeListOutAry,JSON.stringify(typeDefs,null,4)):null,
         args.typeListShortOutAry?writeAryAsync(args.typeListShortOutAry,JSON.stringify(typeDefs.map(t=>({
             ...t,
@@ -301,8 +351,8 @@ const main=async ()=>{
             zodOut0?'./'+Path.basename(zodOut0):undefined,
             args.importExt
         )):null,
-        args.zodOutAry?writeAryAsync(args.zodOutAry,typesToString(zodTypes),`import { z } from "zod";\n\n`):null,
-        args.convoOutAry?writeAryAsync(args.convoOutAry,typesToString(convoTypes),'> define\n\n'):null,
+        args.zodOutAry?writeAryAsync(args.zodOutAry,typesToString(zodTypes),zodSource.join('')+`import { z } from "zod";\n\n`):null,
+        args.convoOutAry?writeAryAsync(args.convoOutAry,typesToString(convoTypes),convoSource.join('')+'> define\n\n'):null,
         args.typeMapOutAry?writeAryAsync(args.typeMapOutAry,JSON.stringify(typeMap,null,4)):null,
         args.tableMapOutAry?writeAryAsync(args.tableMapOutAry,JSON.stringify(tableMap,null,4)):null,
         args.tsTableMapOutAry?writeAryAsync(args.tsTableMapOutAry,JSON.stringify(tableMap,null,4),`export const tableMap=`):null,
@@ -575,6 +625,8 @@ const createType=(
         ){
             continue;
         }
+        const metadata=c.location?parseComment(sql,c.location):undefined;
+        const description=c.location && !forInsert?metadata?.comment:undefined;
         const prop=c.colname;
         let arrayDepth=c.typeName?.arrayBounds?.length??0;;
         const dataType=getPgTypeName(c.typeName);
@@ -595,22 +647,25 @@ const createType=(
         const sqlTypeLower=sqlType.toLowerCase();
         const mt=typeMap[sqlTypeLower]??typeMap['_default']??{name:'string'};
 
-        const description=c.location && !forInsert?findComment(sql,c.location):undefined;
-
         if(description){
             tsType.src.push(`${toJsDoc(description,indent)}\n`);
             convoType.src.push(`${toConvoComment(description,indent)}\n`);
         }
 
-        tsType.src.push(`${indent}${prop}${optional?'?':''}:${mt.ts??mt.name}${'[]'.repeat(arrayDepth)};\n`);
+        const tsTypeOverride=metadata?.metadata.find(m=>m.tag==='type' && m.type==='ts')??metadata?.metadata.find(m=>m.tag==='type' && m.type===undefined);
+        tsType.src.push(`${indent}${prop}${optional?'?':''}:${tsTypeOverride?.value??mt.ts??mt.name}${'[]'.repeat(arrayDepth)};\n`);
 
-        let convoProp=`${indent}${prop}${optional?'?':''}: ${mt.convo??mt.name}`;
+
+        const convoTypeOverride=metadata?.metadata.find(m=>m.tag==='type' && m.type==='convo')??metadata?.metadata.find(m=>m.tag==='type' && m.type===undefined);
+        let convoProp=`${indent}${prop}${optional?'?':''}: ${convoTypeOverride?.value??mt.convo??mt.name}`;
         for(let a=0;a<arrayDepth;a++){
             convoProp=`array(${convoProp})`
         }
         convoType.src.push(convoProp+'\n');
 
-        let zodProp=mt.zod??'z.'+mt.name+'()';
+
+        const zodTypeOverride=metadata?.metadata.find(m=>m.tag==='type' && m.type==='zod')??metadata?.metadata.find(m=>m.tag==='type' && m.type===undefined);
+        let zodProp=zodTypeOverride?.value??mt.zod??('z.'+mt.name+'()');
         if(optional){
             zodProp+='.optional()';
         }
@@ -920,6 +975,38 @@ export const findComment=(sql,statementStart,forward)=>{
     }
     return lines.length?lines.join('\n').trim():undefined;
 }
+
+/**
+ * @param {string} sql 
+ * @param {number} statementStart 
+ * @param {boolean=} forward 
+ * @param {string[]=} onlyTake 
+ * @param {string[]=} ignore
+ * @param {boolean=} searchAll
+ * @returns {MetadataComment|undefined}
+ */
+export const parseComment=(sql,statementStart,forward,onlyTake,ignore=['source'],searchAll)=>{
+    let comment=searchAll?sql:findComment(sql,statementStart,forward);
+    if(!comment){
+        return undefined;
+    }
+    /** @type {MetadataItem[]} */
+    const metadata=[];
+    comment=comment.replace(metadataReg,(fullMatch,_start,_comment,tag,_typeC,type,value)=>{
+        if((onlyTake && !onlyTake.includes(tag)) || ignore?.includes(tag)){
+            return fullMatch;
+        }
+        metadata.push({
+            tag,
+            type:type||undefined,
+            value:value.trim(),
+        });
+        return '';
+    }).trim();
+    return {comment,metadata}
+}
+
+const metadataReg=/(\n|^)\s*(-{2,})?\s*\{\s*@(\w+)(:(\w+))?(.*)\}/g;
 
 const escapeJsComment=(text)=>text.replace(/\*\//g,'(star)/');
 

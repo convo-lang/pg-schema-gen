@@ -37,7 +37,42 @@ Arguments:
 
 (multi) arguments can be specified multiple times.
 
-The `--out` argument provides provides a default path for all other output arguments. 
+The `--out` argument provides provides a default path for all other output arguments.
+
+## Metadata Comments
+Special metadata can be defined in comments using a format of `{@TAG[:LANG] VALUE}` where LANG is optional.
+Metadata can be used to override property types or to add source code to outputs.
+
+## Type Overrides
+Property types for output languages can be overwritten using a `type` metadata comment when applied
+to a table column. This can be useful when the type within application can is more specific than the
+type used in the database and is commonly used with `jsonb` columns that implement a specific
+interface or type in TypeScript. The `source` metadata comment can be used in combination with a
+`type` metadata comment to define where the custom property type should be imported from.
+
+In the following example the `value` property `ExampleType` TypeScript output will have a type of
+`ExampleValueType` and will be imported from `../lib/example`
+``` sql
+-- {@source:ts import { ExampleValueType } from '../lib/example'; }
+
+create table example_type (
+    id uuid not null default gen_random_uuid (),
+    name text not null,
+    -- {@type:ts ExampleValueType}
+    value jsonb not null
+)
+```
+
+TypeScript output:
+``` ts
+import { ExampleValueType } from '../lib/example';
+
+export interface ExampleType{
+    id:string;
+    name:string;
+    value:ExampleValueType;
+}
+```
 
 ## Example
 

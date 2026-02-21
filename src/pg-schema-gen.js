@@ -1137,7 +1137,7 @@ export const getPgTypeName=(typeName)=>{
         if(!n){
             continue;
         }
-        if(!n.startsWith('pg_')){
+        if(n!=='public' && !n.startsWith('pg_')){
             return n;
         }
         name=n;

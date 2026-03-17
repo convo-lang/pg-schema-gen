@@ -639,7 +639,14 @@ const createType=(
             constraints.some(c=>c.contype==='CONSTR_PRIMARY') ||
             s.constraintList.some(c=>c.contype==='CONSTR_PRIMARY' && getPgStrings(c.keys).includes(prop))
         );
-        const hasDefault=constraints.some(c=>c.contype==='CONSTR_DEFAULT');
+        const hasDefault=constraints.some(c=>(
+            c.contype==='CONSTR_DEFAULT' ||
+            c.contype==='CONSTR_GENERATED' ||
+            (
+                c.contype==='CONSTR_IDENTITY' &&
+                (c.generated_when==='a' || c.generated_when==='d')
+            )
+        ));
         const required=forInsert?((notNull || isPrimary) && !hasDefault):(notNull || isPrimary);
         const optional=!required;
         
@@ -666,11 +673,11 @@ const createType=(
 
         const zodTypeOverride=metadata?.metadata.find(m=>m.tag==='type' && m.type==='zod')??metadata?.metadata.find(m=>m.tag==='type' && m.type===undefined);
         let zodProp=zodTypeOverride?.value??mt.zod??('z.'+mt.name+'()');
-        if(optional){
-            zodProp+='.optional()';
-        }
         if(arrayDepth){
             zodProp+='.array()'.repeat(arrayDepth);
+        }
+        if(optional){
+            zodProp+='.optional()';
         }
         if(description){
             zodProp+=`.describe(${JSON.stringify(description)})`;

@@ -17,6 +17,7 @@ import fs from "node:fs/promises";
  * @prop {string[]=} typeMapFileAry Array of type map json files
  * @prop {string=} clearTypeMap Clears all default type mappings 
  * @prop {string=} insertSuffix A suffix added to insert types
+ * @prop {string=} updateSuffix A suffix added to updates types
  * @prop {string=} silent Silences console logging
  * @prop {string=} verbose Enables verbose output
  * @prop {string=} barrelBase Base path to import exported exports from in the schema barrel
@@ -217,6 +218,7 @@ const main=async ()=>{
     }
 
     const insertSuffix=args.insertSuffix??'_insert';
+    const updateSuffix=args.updateSuffix??'_update';
 
     let typeMap=args.clearTypeMap==='true'?{}:{...defaultTypeMap};
     if(args.typeMapFileAry){
@@ -325,8 +327,9 @@ const main=async ()=>{
         if(!c){
             continue;
         }
-        createType(c,false,insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
-        createType(c,true,insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
+        createType(c,null,'',sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
+        createType(c,'insert',insertSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
+        createType(c,'update',updateSuffix,sql,typeMap,tableMap,typeDefs,tsTypes,zodTypes,convoTypes);
     }
 
     sortObj(typeDefs);
@@ -465,7 +468,7 @@ export interface TypeDef<
     name:string;
     description?:string;
     type:'type'|'enum';
-    primaryKey:(keyof TValue) & (keyof TInsert);
+    primaryKey?:(keyof TValue) & (keyof TInsert);
     sqlTable?:string;
     sqlSchema?:string;
     zodSchema?:ZodType;
@@ -543,8 +546,8 @@ const sortObj=(obj)=>{
 
 /**
  * @param {PgCreateTable} s
- * @param {boolean} forInsert
- * @param {string} insertSuffix
+ * @param {'insert'|'update'|null} forOp
+ * @param {string} typeSuffix
  * @param {string} sql
  * @param {Record<string,TypeMapping>} typeMap
  * @param {TableMap} tableMap
@@ -555,8 +558,8 @@ const sortObj=(obj)=>{
  */
 const createType=(
     s,
-    forInsert,
-    insertSuffix,
+    forOp,
+    typeSuffix,
     sql,
     typeMap,
     tableMap,
@@ -566,13 +569,13 @@ const createType=(
     convoTypes
 )=>{
     const baseName=toTsName(s.name);
-    const name=baseName+(forInsert?insertSuffix:'');
-    if(!forInsert){
+    const name=baseName+(forOp?typeSuffix:'');
+    if(!forOp){
         tableMap.toName[s.name]=name;
     }
     tableMap.toTable[name]=s.name;
 
-    const typeDescription=s.location && !forInsert?findComment(sql,s.location,true):undefined;
+    const typeDescription=s.location && !forOp?findComment(sql,s.location,true):undefined;
 
     /** @type {TypeDef} */
     const typeDef={
@@ -597,9 +600,9 @@ const createType=(
         tsType.src.push(`${toJsDoc(typeDescription,'',true)}\n`);
         convoType.src.push(`${toConvoComment(typeDescription,'')}\n`);
     }
-    if(forInsert){
-        tsType.src.push(` * @insertFor ${baseName}\n`);
-        convoType.src.push(`# insertFor: ${baseName}\n`);
+    if(forOp){
+        tsType.src.push(` * @${forOp}For ${baseName}\n`);
+        convoType.src.push(`# ${forOp}For: ${baseName}\n`);
     }
     tsType.src.push(` * @table ${s.name}\n`);
     convoType.src.push(`# table: ${s.name}\n`);
@@ -626,7 +629,7 @@ const createType=(
             continue;
         }
         const metadata=c.location?parseComment(sql,c.location):undefined;
-        const description=c.location && !forInsert?metadata?.comment:undefined;
+        const description=c.location && !forOp?metadata?.comment:undefined;
         const prop=c.colname;
         let arrayDepth=c.typeName?.arrayBounds?.length??0;;
         const dataType=getPgTypeName(c.typeName);
@@ -647,7 +650,13 @@ const createType=(
                 (c.generated_when==='a' || c.generated_when==='d')
             )
         ));
-        const required=forInsert?((notNull || isPrimary) && !hasDefault):(notNull || isPrimary);
+        const required=(forOp==='update'?
+            isPrimary
+        :forOp==='insert'?
+            ((notNull || isPrimary) && !hasDefault)
+        :
+            (notNull || isPrimary)
+        );
         const optional=!required;
         
         const sqlType=dataType;
@@ -716,7 +725,7 @@ const createType=(
     convoTypes.push(convoType);
 
     typeDef.primaryKey=typeDef.props.find(p=>p.primary)?.name;
-    if(!forInsert){
+    if(!forOp){
         typeDefs.push(typeDef);
     }
 }
